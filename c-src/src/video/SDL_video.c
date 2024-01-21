@@ -465,9 +465,7 @@ int SDL_VideoInit(const char *driver_name)
         SDL_VideoQuit();
     }
 
-#ifndef SDL_TIMERS_DISABLED
     SDL_InitTicks();
-#endif
 
     /* Start the event loop */
     if (SDL_InitSubSystem(SDL_INIT_EVENTS) < 0) {
@@ -534,7 +532,7 @@ int SDL_VideoInit(const char *driver_name)
     pre_driver_error. */
     _this = video;
     _this->name = bootstrap[i]->name;
-    _this->thread = SDL_ThreadID();
+    _this->thread = SDL_GetCurrentThreadID();
 
     /* Set some very sane GL defaults */
     _this->gl_config.driver_loaded = 0;
@@ -620,7 +618,7 @@ SDL_VideoDevice *SDL_GetVideoDevice(void)
 
 SDL_bool SDL_OnVideoThread(void)
 {
-    return (_this && SDL_ThreadID() == _this->thread);
+    return (_this && SDL_GetCurrentThreadID() == _this->thread);
 }
 
 SDL_bool SDL_IsVideoContextExternal(void)
@@ -1404,14 +1402,19 @@ SDL_VideoDisplay *SDL_GetVideoDisplayForFullscreenWindow(SDL_Window *window)
     }
 
     /* The floating position is used here as a very common pattern is
-     * SDL_SetWindowPosition() followed by SDL_SetWindowFullscreen to make the
+     * SDL_SetWindowPosition() followed by SDL_SetWindowFullscreen() to make the
      * window fullscreen desktop on a specific display. If the backend doesn't
      * support changing the window position, or the compositor hasn't yet actually
-     * moved the window, the actual position won't be updated at the time of the
+     * moved the window, the current position won't be updated at the time of the
      * fullscreen call.
      */
     if (!displayID) {
-        displayID = GetDisplayForRect(window->floating.x, window->floating.y, window->w, window->h);
+        if (window->flags & SDL_WINDOW_FULLSCREEN && !window->is_repositioning) {
+            /* This was a window manager initiated move, use the current position. */
+            displayID = GetDisplayForRect(window->x, window->y, window->w, window->h);
+        } else {
+            displayID = GetDisplayForRect(window->floating.x, window->floating.y, window->w, window->h);
+        }
     }
     if (!displayID) {
         /* Use the primary display for a window if we can't find it anywhere else */
@@ -1747,8 +1750,10 @@ int SDL_UpdateFullscreenMode(SDL_Window *window, SDL_bool fullscreen, SDL_bool c
                 }
             }
 
-            /* Restore the cursor position */
-            SDL_RestoreMousePosition(window);
+            /* Restore the cursor position if we've exited fullscreen on a display */
+            if (display) {
+                SDL_RestoreMousePosition(window);
+            }
         }
     }
 
@@ -2339,6 +2344,14 @@ int SDL_RecreateWindow(SDL_Window *window, Uint32 flags)
         _this->SetWindowIcon(_this, window, window->icon);
     }
 
+    if (_this->SetWindowMinimumSize && (window->min_w || window->min_h)) {
+        _this->SetWindowMinimumSize(_this, window);
+    }
+
+    if (_this->SetWindowMaximumSize && (window->max_w || window->max_h)) {
+        _this->SetWindowMaximumSize(_this, window);
+    }
+
     if (window->hit_test) {
         _this->SetWindowHitTest(window, SDL_TRUE);
     }
@@ -2492,7 +2505,9 @@ int SDL_SetWindowPosition(SDL_Window *window, int x, int y)
     window->undefined_y = SDL_FALSE;
 
     if (_this->SetWindowPosition) {
+        window->is_repositioning = SDL_TRUE;
         const int ret = _this->SetWindowPosition(_this, window);
+        window->is_repositioning = SDL_FALSE;
         if (!ret) {
             SDL_SyncIfRequired(window);
         }

@@ -43,6 +43,12 @@ pub const ScaleMode = enum(c_uint) {
     best,
 };
 
+pub const FlipMode = enum(c_uint) {
+    none,
+    horizontal,
+    vertical,
+};
+
 /// A collection of pixels used in software blitting.
 ///
 /// Pixels are arranged in memory in rows, with the top row first.
@@ -355,6 +361,10 @@ pub const Surface = extern struct {
         try internal.checkResult(SDL_GetSurfaceClipRect(self, rect));
     }
 
+    pub fn flip(self: *Surface, mode: FlipMode) Error!void {
+        try internal.checkResult(SDL_FlipSurface(self, mode));
+    }
+
     /// Creates a new surface identical to the existing surface.
     ///
     /// The returned surface should be freed with SDL_DestroySurface().
@@ -663,6 +673,7 @@ pub const Surface = extern struct {
     extern fn SDL_GetSurfaceBlendMode(surface: *Surface, blendMode: *BlendMode) c_int;
     extern fn SDL_SetSurfaceClipRect(surface: *Surface, rect: *const Rect) Bool;
     extern fn SDL_GetSurfaceClipRect(surface: *Surface, rect: *Rect) c_int;
+    extern fn SDL_FlipSurface(surface: *Surface, flip: FlipMode) c_int;
     extern fn SDL_DuplicateSurface(surface: *Surface) ?*Surface;
     extern fn SDL_ConvertSurface(surface: *Surface, format: *const PixelFormatStruct) ?*Surface;
     extern fn SDL_ConvertSurfaceFormat(surface: *Surface, pixel_format: PixelFormat) ?*Surface;
@@ -673,6 +684,8 @@ pub const Surface = extern struct {
     extern fn SDL_SoftStretch(src: *Surface, srcrect: *const Rect, dst: *Surface, dstrect: *const Rect, scaleMode: ScaleMode) c_int;
     extern fn SDL_BlitSurfaceScaled(src: *Surface, srcrect: *const Rect, dst: *Surface, dstrect: *Rect, scaleMode: ScaleMode) c_int;
     extern fn SDL_BlitSurfaceUncheckedScaled(src: *Surface, srcrect: *const Rect, dst: *Surface, dstrect: *const Rect, scaleMode: ScaleMode) c_int;
+    // TODO : wrap this!
+    extern fn SDL_ReadSurfacePixel(surface: *Surface, x: c_int, y: c_int, r: *u8, g: *u8, b: *u8, a: *u8) c_int;
     extern fn SDL_DestroySurface(surface: *Surface) void;
 };
 

@@ -45,6 +45,22 @@ typedef Uint32 SDL_DisplayID;
 typedef Uint32 SDL_WindowID;
 
 /**
+ *  Global video properties
+ *
+ *  - `SDL_PROPERTY_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER`: the pointer to
+ *    the global `wl_display` object used by the Wayland video backend. Can be
+ *    set before the video subsystem is initialized to import an external
+ *    `wl_display` object from an application or toolkit for use in SDL, or
+ *    read after initialization to export the `wl_display` used by the
+ *    Wayland video backend. Setting this property after the video subsystem
+ *    has been initialized has no effect, and reading it when the video
+ *    subsystem is uninitialized will either return the user provided value,
+ *    if one was set prior to initialization, or NULL. See
+ *    docs/README-wayland.md for more information.
+ */
+#define SDL_PROPERTY_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER "video.wayland.wl_display"
+
+/**
  *  System theme
  */
 typedef enum
@@ -638,8 +654,9 @@ extern DECLSPEC float SDLCALL SDL_GetWindowDisplayScale(SDL_Window *window);
  *
  * \param window the window to affect
  * \param mode a pointer to the display mode to use, which can be NULL for
- *             desktop mode, or one of the fullscreen modes returned by
- *             SDL_GetFullscreenDisplayModes().
+ *             borderless fullscreen desktop mode, or one of the fullscreen
+ *             modes returned by SDL_GetFullscreenDisplayModes() to set an
+ *             exclusive fullscreen mode.
  * \returns 0 on success or a negative error code on failure; call
  *          SDL_GetError() for more information.
  *
@@ -655,7 +672,8 @@ extern DECLSPEC int SDLCALL SDL_SetWindowFullscreenMode(SDL_Window *window, cons
  * Query the display mode to use when a window is visible at fullscreen.
  *
  * \param window the window to query
- * \returns a pointer to the fullscreen mode to use or NULL for desktop mode
+ * \returns a pointer to the exclusive fullscreen mode to use or NULL for
+ *          borderless fullscreen desktop mode
  *
  * \since This function is available since SDL 3.0.0.
  *
@@ -875,6 +893,9 @@ extern DECLSPEC SDL_Window *SDLCALL SDL_CreatePopupWindow(SDL_Window *parent, in
  * - `SDL_PROPERTY_WINDOW_CREATE_WAYLAND_CREATE_EGL_WINDOW_BOOLEAN - true if
  *   the application wants an associated `wl_egl_window` object to be created,
  *   even if the window does not have the OpenGL property or flag set.
+ * - `SDL_PROPERTY_WINDOW_CREATE_WAYLAND_WL_SURFACE_POINTER` - the wl_surface
+ *   associated with the window, if you want to wrap an existing window. See
+ *   docs/README-wayland.md for more information.
  *
  * These are additional supported properties on Windows:
  *
@@ -931,6 +952,7 @@ extern DECLSPEC SDL_Window *SDLCALL SDL_CreateWindowWithProperties(SDL_Propertie
 #define SDL_PROPERTY_WINDOW_CREATE_COCOA_VIEW_POINTER                  "cocoa.view"
 #define SDL_PROPERTY_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN "wayland.surface_role_custom"
 #define SDL_PROPERTY_WINDOW_CREATE_WAYLAND_CREATE_EGL_WINDOW_BOOLEAN   "wayland.create_egl_window"
+#define SDL_PROPERTY_WINDOW_CREATE_WAYLAND_WL_SURFACE_POINTER          "wayland.wl_surface"
 #define SDL_PROPERTY_WINDOW_CREATE_WIN32_HWND_POINTER                  "win32.hwnd"
 #define SDL_PROPERTY_WINDOW_CREATE_WIN32_PIXEL_FORMAT_HWND_POINTER     "win32.pixel_format_hwnd"
 #define SDL_PROPERTY_WINDOW_CREATE_X11_WINDOW_NUMBER                   "x11.window"
@@ -1588,8 +1610,9 @@ extern DECLSPEC int SDLCALL SDL_RestoreWindow(SDL_Window *window);
 /**
  * Request that the window's fullscreen state be changed.
  *
- * By default a window in fullscreen state uses fullscreen desktop mode, but a
- * specific display mode can be set using SDL_SetWindowFullscreenMode().
+ * By default a window in fullscreen state uses borderless fullscreen desktop
+ * mode, but a specific exclusive display mode can be set using
+ * SDL_SetWindowFullscreenMode().
  *
  * On some windowing systems this request is asynchronous and the new
  * fullscreen state may not have have been applied immediately upon the return
@@ -1708,6 +1731,11 @@ extern DECLSPEC int SDLCALL SDL_UpdateWindowSurface(SDL_Window *window);
  * on the screen.
  *
  * This function is equivalent to the SDL 1.2 API SDL_UpdateRects().
+ *
+ * Note that this function will update _at least_ the rectangles specified,
+ * but this is only intended as an optimization; in practice, this might
+ * update more of the screen (or all of the screen!), depending on what method
+ * SDL uses to send pixels to the system.
  *
  * \param window the window to update
  * \param rects an array of SDL_Rect structures representing areas of the

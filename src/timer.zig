@@ -32,7 +32,7 @@ pub fn nsToUs(ns: u64) u64 {
 /// scheduled. If the callback returns 0, the periodic alarm is cancelled.
 pub const TimerCallback = *const fn (interval: u32, userdata: ?*anyopaque) callconv(.C) u32;
 
-pub const TimerID = enum(c_int) {
+pub const TimerID = enum(u32) {
     invalid = 0,
     _,
 

@@ -2,7 +2,7 @@ const internal = @import("internal.zig");
 const Error = internal.Error;
 const MouseID = @import("mouse.zig").MouseID;
 
-pub const FingerID = i64;
+pub const FingerID = u64;
 
 pub const TouchDeviceType = enum(c_int) {
     invalid = -1,
@@ -24,9 +24,9 @@ pub const Finger = extern struct {
 pub const touch_mouse_id: MouseID = .touch;
 pub const mouse_touch_id: TouchID = .mouse;
 
-pub const TouchID = enum(i64) {
+pub const TouchID = enum(u64) {
     invalid = 0,
-    mouse = -1,
+    mouse = @bitCast(@as(i64, -1)),
     _,
 
     /// Get the touch device name as reported from the driver.

@@ -169,9 +169,11 @@ static SDL_Scancode WindowsScanCodeToSDLScanCode(LPARAM lParam, WPARAM wParam)
     } else {
         Uint16 vkCode = LOWORD(wParam);
 
+#if !defined(__XBOXONE__) && !defined(__XBOXSERIES__)
         /* Windows may not report scan codes for some buttons (multimedia buttons etc).
          * Get scan code from the VK code.*/
         scanCode = LOWORD(MapVirtualKey(vkCode, MAPVK_VK_TO_VSC_EX));
+#endif /*!defined(__XBOXONE__) && !defined(__XBOXSERIES__)*/
 
         /* Pause/Break key have a special scan code with 0xe1 prefix.
          * Use Pause scan code that is used in Win32. */
@@ -242,7 +244,7 @@ static void WIN_CheckWParamMouseButtons(Uint64 timestamp, WPARAM wParam, SDL_Win
     }
 }
 
-static void WIN_CheckRawMouseButtons(Uint64 timestamp, ULONG rawButtons, SDL_WindowData *data, SDL_MouseID mouseID)
+static void WIN_CheckRawMouseButtons(Uint64 timestamp, HANDLE hDevice, ULONG rawButtons, SDL_WindowData *data, SDL_MouseID mouseID)
 {
     // Add a flag to distinguish raw mouse buttons from wParam above
     rawButtons |= 0x8000000;
@@ -250,6 +252,10 @@ static void WIN_CheckRawMouseButtons(Uint64 timestamp, ULONG rawButtons, SDL_Win
     if (rawButtons != data->mouse_button_flags) {
         Uint32 mouseFlags = SDL_GetMouseState(NULL, NULL);
         SDL_bool swapButtons = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+        if (swapButtons && hDevice == NULL) {
+            /* Touchpad, already has buttons swapped */
+            swapButtons = SDL_FALSE;
+        }
         if (rawButtons & RI_MOUSE_BUTTON_1_DOWN) {
             WIN_CheckWParamMouseButton(timestamp, (rawButtons & RI_MOUSE_BUTTON_1_DOWN), mouseFlags, swapButtons, data, SDL_BUTTON_LEFT, mouseID);
         }
@@ -515,9 +521,7 @@ WIN_KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
     return 1;
 }
 
-#endif /*!defined(__XBOXONE__) && !defined(__XBOXSERIES__)*/
-
-static void WIN_HandleRawMouseInput(Uint64 timestamp, SDL_WindowData *data, RAWMOUSE *rawmouse)
+static void WIN_HandleRawMouseInput(Uint64 timestamp, SDL_WindowData *data, HANDLE hDevice, RAWMOUSE *rawmouse)
 {
     SDL_MouseID mouseID;
 
@@ -607,7 +611,7 @@ static void WIN_HandleRawMouseInput(Uint64 timestamp, SDL_WindowData *data, RAWM
         data->last_raw_mouse_position.x = x;
         data->last_raw_mouse_position.y = y;
     }
-    WIN_CheckRawMouseButtons(timestamp, rawmouse->usButtonFlags, data, mouseID);
+    WIN_CheckRawMouseButtons(timestamp, hDevice, rawmouse->usButtonFlags, data, mouseID);
 }
 
 void WIN_PollRawMouseInput(void)
@@ -685,13 +689,14 @@ void WIN_PollRawMouseInput(void)
             timestamp += increment;
             if (input->header.dwType == RIM_TYPEMOUSE) {
                 RAWMOUSE *rawmouse = (RAWMOUSE *)((BYTE *)input + data->rawinput_offset);
-                WIN_HandleRawMouseInput(timestamp, window->driverdata, rawmouse);
+                WIN_HandleRawMouseInput(timestamp, window->driverdata, input->header.hDevice, rawmouse);
             }
         }
     }
     data->last_rawinput_poll = now;
 }
 
+#endif /*!defined(__XBOXONE__) && !defined(__XBOXSERIES__)*/
 
 LRESULT CALLBACK
 WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -853,7 +858,7 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         /* Mouse data (ignoring synthetic mouse events generated for touchscreens) */
         if (inp.header.dwType == RIM_TYPEMOUSE) {
-            WIN_HandleRawMouseInput(WIN_GetEventTimestamp(), data, &inp.data.mouse);
+            WIN_HandleRawMouseInput(WIN_GetEventTimestamp(), data, inp.header.hDevice, &inp.data.mouse);
         }
     } break;
 #endif
@@ -1087,6 +1092,28 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_WINDOWPOSCHANGING:
     {
+        if (data->expected_resize) {
+            returnCode = 0;
+        }
+
+        if (data->floating_rect_pending &&
+            !IsIconic(hwnd) &&
+            !IsZoomed(hwnd) &&
+            (data->window->flags & (SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED)) &&
+            !(data->window->flags & SDL_WINDOW_FULLSCREEN)) {
+            /* If a new floating size is pending, apply it if moving from a fixed-size to floating state. */
+            WINDOWPOS *windowpos = (WINDOWPOS*)lParam;
+            int fx, fy, fw, fh;
+
+            WIN_AdjustWindowRect(data->window, &fx, &fy, &fw, &fh, SDL_WINDOWRECT_FLOATING);
+            windowpos->x = fx;
+            windowpos->y = fy;
+            windowpos->cx = fw;
+            windowpos->cy = fh;
+            windowpos->flags &= ~(SWP_NOSIZE | SWP_NOMOVE);
+
+            data->floating_rect_pending = SDL_FALSE;
+        }
     } break;
 
     case WM_WINDOWPOSCHANGED:
@@ -1094,10 +1121,11 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SDL_Window *win;
         const SDL_DisplayID original_displayID = data->last_displayID;
         const WINDOWPOS *windowpos = (WINDOWPOS *)lParam;
-        const SDL_bool moved = !(windowpos->flags & SWP_NOMOVE);
-        const SDL_bool resized = !(windowpos->flags & SWP_NOSIZE);
         const SDL_bool iconic = IsIconic(hwnd);
         const SDL_bool zoomed = IsZoomed(hwnd);
+        RECT rect;
+        int x, y;
+        int w, h;
 
         if (windowpos->flags & SWP_SHOWWINDOW) {
             SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_SHOWN, 0, 0);
@@ -1119,11 +1147,6 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_HIDDEN, 0, 0);
         }
 
-        if (!moved && !resized) {
-            /* Nothing left to handle */
-            break;
-        }
-
         /* When the window is minimized it's resized to the dock icon size, ignore this */
         if (iconic) {
             break;
@@ -1133,33 +1156,23 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             break;
         }
 
-        if (moved) {
-            RECT rect;
-            int x, y;
+        if (GetClientRect(hwnd, &rect) && !WIN_IsRectEmpty(&rect)) {
+            ClientToScreen(hwnd, (LPPOINT) &rect);
+            ClientToScreen(hwnd, (LPPOINT) &rect + 1);
 
-            if (GetClientRect(hwnd, &rect) && !WIN_IsRectEmpty(&rect)) {
-                ClientToScreen(hwnd, (LPPOINT)&rect);
-                ClientToScreen(hwnd, (LPPOINT)&rect + 1);
+            x = rect.left;
+            y = rect.top;
 
-                x = rect.left;
-                y = rect.top;
-
-                SDL_GlobalToRelativeForWindow(data->window, x, y, &x, &y);
-                SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_MOVED, x, y);
-            }
+            SDL_GlobalToRelativeForWindow(data->window, x, y, &x, &y);
+            SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_MOVED, x, y);
         }
 
-        if (resized) {
-            RECT rect;
-            int w, h;
+        /* Moving the window from one display to another can change the size of the window (in the handling of SDL_EVENT_WINDOW_MOVED), so we need to re-query the bounds */
+        if (GetClientRect(hwnd, &rect) && !WIN_IsRectEmpty(&rect)) {
+            w = rect.right;
+            h = rect.bottom;
 
-            /* Moving the window from one display to another can change the size of the window (in the handling of SDL_EVENT_WINDOW_MOVED), so we need to re-query the bounds */
-            if (GetClientRect(hwnd, &rect) && !WIN_IsRectEmpty(&rect)) {
-                w = rect.right;
-                h = rect.bottom;
-
-                SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_RESIZED, w, h);
-            }
+            SDL_SendWindowEvent(data->window, SDL_EVENT_WINDOW_RESIZED, w, h);
         }
 
         WIN_UpdateClipCursor(data->window);
@@ -1312,7 +1325,8 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     const int w = (rect.right - rect.left);
                     const int h = (rect.bottom - rect.top);
 
-                    const SDL_TouchID touchId = (SDL_TouchID)((size_t)input->hSource);
+                    const SDL_TouchID touchId = (SDL_TouchID)((uintptr_t)input->hSource);
+                    const SDL_FingerID fingerId = (input->dwID + 1);
 
                     /* TODO: Can we use GetRawInputDeviceInfo and HID info to
                        determine if this is a direct or indirect touch device?
@@ -1335,13 +1349,13 @@ WIN_WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
                     /* FIXME: Should we use the input->dwTime field for the tick source of the timestamp? */
                     if (input->dwFlags & TOUCHEVENTF_DOWN) {
-                        SDL_SendTouch(WIN_GetEventTimestamp(), touchId, input->dwID, data->window, SDL_TRUE, x, y, 1.0f);
+                        SDL_SendTouch(WIN_GetEventTimestamp(), touchId, fingerId, data->window, SDL_TRUE, x, y, 1.0f);
                     }
                     if (input->dwFlags & TOUCHEVENTF_MOVE) {
-                        SDL_SendTouchMotion(WIN_GetEventTimestamp(), touchId, input->dwID, data->window, x, y, 1.0f);
+                        SDL_SendTouchMotion(WIN_GetEventTimestamp(), touchId, fingerId, data->window, x, y, 1.0f);
                     }
                     if (input->dwFlags & TOUCHEVENTF_UP) {
-                        SDL_SendTouch(WIN_GetEventTimestamp(), touchId, input->dwID, data->window, SDL_FALSE, x, y, 1.0f);
+                        SDL_SendTouch(WIN_GetEventTimestamp(), touchId, fingerId, data->window, SDL_FALSE, x, y, 1.0f);
                     }
                 }
             }

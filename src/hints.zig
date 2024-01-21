@@ -1791,20 +1791,6 @@ pub const hints = struct {
     ///    "dropblock"  - Decode until the first incomplete block (default)
     pub const wave_truncation = "SDL_WAVE_TRUNCATION";
 
-    /// Tell SDL not to name threads on Windows with the 0x406D1388 Exception.
-    ///        The 0x406D1388 Exception is a trick used to inform Visual Studio of a
-    ///        thread's name, but it tends to cause problems with other debuggers,
-    ///        and the .NET runtime. Note that SDL 2.0.6 and later will still use
-    ///        the (safer) SetThreadDescription API, introduced in the Windows 10
-    ///        Creators Update, if available.
-    ///
-    /// The variable can be set to the following values:
-    ///   "0"       - SDL will raise the 0x406D1388 Exception to name threads.
-    ///               This is the default behavior of SDL <= 2.0.4.
-    ///   "1"       - SDL will not raise this exception, and threads will be unnamed. (default)
-    ///               This is necessary with .NET languages or debuggers that aren't Visual Studio.
-    pub const windows_disable_thread_naming = "SDL_WINDOWS_DISABLE_THREAD_NAMING";
-
     ///  Controls whether menus can be opened with their keyboard shortcut (Alt+mnemonic).
     ///
     ///  If the mnemonics are enabled, then menus can be opened by pressing the Alt
@@ -2025,13 +2011,6 @@ pub const hints = struct {
     ///    "0"       - Disable DirectInput detection (only uses XInput)
     ///    "1"       - Enable DirectInput detection (the default)
     pub const directinput_enabled = "SDL_DIRECTINPUT_ENABLED";
-
-    ///  A variable that causes SDL to use the old axis and button mapping for XInput devices.
-    ///
-    ///  This hint is for backwards compatibility only and will be removed in SDL 2.1
-    ///
-    ///  The default value is "0".  This hint must be set before SDL_Init()
-    pub const xinput_use_old_joystick_mapping = "SDL_XINPUT_USE_OLD_JOYSTICK_MAPPING";
 
     ///  A variable that causes SDL to not ignore audio "monitors"
     ///
