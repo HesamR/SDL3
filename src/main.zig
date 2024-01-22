@@ -4,7 +4,6 @@ pub usingnamespace @import("blendmode.zig");
 pub usingnamespace @import("clipboard.zig");
 pub usingnamespace @import("event.zig");
 pub usingnamespace @import("guid.zig");
-pub usingnamespace @import("haptic.zig");
 pub usingnamespace @import("hints.zig");
 pub usingnamespace @import("init.zig");
 pub usingnamespace @import("joystick.zig");

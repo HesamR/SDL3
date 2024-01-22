@@ -479,6 +479,9 @@ const files = .{
             root ++ "stdlib/SDL_stdlib.c",
             root ++ "stdlib/SDL_string.c",
             root ++ "stdlib/SDL_strtokr.c",
+            root ++ "stdlib/SDL_memcpy.c",
+            root ++ "stdlib/SDL_memmove.c",
+            root ++ "stdlib/SDL_memset.c",
         },
     },
 
